@@ -8,6 +8,7 @@ on:
 permissions:
   contents: write
 
+# 🔥 중복 실행 방지 (필수)
 concurrency:
   group: mercari-monitor
   cancel-in-progress: true
@@ -16,29 +17,50 @@ jobs:
   monitor:
     runs-on: ubuntu-latest
 
-    steps:
-      - uses: actions/checkout@v4
+    # 🔥 1단계: 전체 작업 timeout (무한 실행 방지)
+    timeout-minutes: 10
 
-      - uses: actions/setup-python@v5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
 
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
+
+      - name: Install Playwright
+        run: |
           playwright install --with-deps chromium
 
-      - name: Run monitor
+      # 🔥 핵심 1: retry 로직 (네트워크/크롤링 실패 대응)
+      - name: Run monitor (with retry)
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python app.py
+        run: |
+          for i in 1 2 3; do
+            echo "Run attempt $i"
+            python app.py && break || echo "failed, retrying..." && sleep 5
+          done
 
-      - name: Commit state
+      - name: Commit state file
         run: |
           git config --global user.name "github-actions"
           git config --global user.email "github-actions@github.com"
 
           git add last_seen.json || true
-          git diff --cached --quiet || git commit -m "update state"
+
+          git diff --cached --quiet || git commit -m "update last_seen state"
+
           git push
