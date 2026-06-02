@@ -1,0 +1,15 @@
+services:
+  - type: worker
+    name: mercari-whisky
+    env: python
+    buildCommand: |
+      pip install -r requirements.txt
+      playwright install chromium
+    startCommand: python app.py
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        value: "467749824"
+      - key: KEYWORD
+        value: "uigeadail"
