@@ -1,4 +1,5 @@
 import os
+import json
 import requests
 from playwright.sync_api import sync_playwright
 
@@ -12,8 +13,11 @@ KEYWORDS = [
     "アードベッグ"
 ]
 
+STATE_FILE = "last_seen.json"
+
+
 def send_telegram(message):
-    r = requests.post(
+    requests.post(
         f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
         json={
             "chat_id": CHAT_ID,
@@ -21,10 +25,25 @@ def send_telegram(message):
         },
         timeout=30
     )
-    print(r.text)
 
-def check_keyword(keyword):
+
+def load_state():
+    try:
+        with open(STATE_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return {}
+
+
+def save_state(data):
+    with open(STATE_FILE, "w") as f:
+        json.dump(data, f)
+
+
+def get_latest_item(keyword):
+
     with sync_playwright() as p:
+
         browser = p.chromium.launch(
             headless=True,
             args=[
@@ -36,7 +55,7 @@ def check_keyword(keyword):
         page = browser.new_page()
 
         page.goto(
-            f"https://jp.mercari.com/search?keyword={keyword}",
+            f"https://jp.mercari.com/search?keyword={keyword}&sort=created_time&order=desc",
             wait_until="domcontentloaded",
             timeout=120000
         )
@@ -45,24 +64,53 @@ def check_keyword(keyword):
 
         links = page.locator("a[href*='/item/']").all()
 
-        print(f"{keyword}: {len(links)} items")
+        if len(links) == 0:
+            browser.close()
+            return None
 
-        if len(links) > 0:
-            href = links[0].get_attribute("href")
+        href = links[0].get_attribute("href")
 
-            if href:
-                send_telegram(
-                    f"🔍 검색 확인\n"
-                    f"키워드: {keyword}\n"
-                    f"https://jp.mercari.com{href}"
-                )
+        title = links[0].inner_text().strip()
 
         browser.close()
 
-if __name__ == "__main__":
-    try:
-        for keyword in KEYWORDS:
-            check_keyword(keyword)
+        return {
+            "id": href.split("/")[-1],
+            "title": title,
+            "url": f"https://jp.mercari.com{href}"
+        }
 
-    except Exception as e:
-        send_telegram(f"❌ 오류 발생\n{str(e)}")
+
+def main():
+
+    state = load_state()
+
+    for keyword in KEYWORDS:
+
+        latest = get_latest_item(keyword)
+
+        if not latest:
+            continue
+
+        old_id = state.get(keyword)
+
+        if old_id is None:
+            state[keyword] = latest["id"]
+            continue
+
+        if latest["id"] != old_id:
+
+            send_telegram(
+                f"🚨 신규 등록 감지\n\n"
+                f"키워드: {keyword}\n"
+                f"{latest['title']}\n\n"
+                f"{latest['url']}"
+            )
+
+            state[keyword] = latest["id"]
+
+    save_state(state)
+
+
+if __name__ == "__main__":
+    main()
