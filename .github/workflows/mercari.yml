@@ -1,14 +1,13 @@
 name: Mercari Monitor
 
 on:
-  schedule:
-    - cron: "*/5 * * * *"   # 5분마다 (UTC 기준)
   workflow_dispatch:
+  repository_dispatch:
+    types: [mercari_check]
 
 permissions:
   contents: write
 
-# 🔥 중복 실행 방지 (중요)
 concurrency:
   group: mercari-monitor
   cancel-in-progress: true
@@ -18,42 +17,28 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
-      - name: Cache pip
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
 
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
-
-      - name: Install Playwright
-        run: |
           playwright install --with-deps chromium
 
       - name: Run monitor
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: |
-          python app.py
+        run: python app.py
 
-      - name: Commit state file
+      - name: Commit state
         run: |
           git config --global user.name "github-actions"
           git config --global user.email "github-actions@github.com"
 
           git add last_seen.json || true
-
-          git diff --cached --quiet || git commit -m "update last_seen state"
-
+          git diff --cached --quiet || git commit -m "update state"
           git push
