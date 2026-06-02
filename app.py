@@ -35,6 +35,7 @@ def save_seen(seen):
 
 
 def check_mercari():
+    send_telegram("✅ GitHub Actions 실행 성공")
     seen = load_seen()
 
     with sync_playwright() as p:
